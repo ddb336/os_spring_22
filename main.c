@@ -5,7 +5,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-//commands available: echo, cd, ls, pwd, cat, wc, uniq, sort, rm, touch, rmdir, mkdir, exit
+//commands available: echo, mv, cd, ls, pwd, cat, wc, uniq, sort, rm, touch, rmdir, mkdir, exit
 
 #define SHELL_MAX_ARGS 32
 #define SHELL_TOKEN_DELIMITERS " \t\r\n\a"
@@ -49,11 +49,11 @@ void shell()
     char *line;
     char **args;
     int status;
-    int stin = dup(0);
-    int sout = dup(1);
+    int stin = dup(0); //save stdin
+    int sout = dup(1); //save stdout
     do { //shell loop
-        dup2(stin,0);
-        dup2(sout,1);
+        dup2(stin,0); //reset input to stdin
+        dup2(sout,1); //reset output to stdout
         printf("[om]> ");
         line = read_line();
         args = parse_args(line);
@@ -111,24 +111,24 @@ char **parse_args(char *line)
 int exec_func(char **args)
 {
     int j=0;
-    while(args[j]!=NULL) j++;
+    while(args[j]!=NULL) j++; //start from end in outermost parent
     for(j--; j>=0; j--)
     {
-        if (strcmp(args[j], "|") == 0) //if it is a composite
+        if (strcmp(args[j], "|") == 0) //if it is a composite pipe
         {
             int bufsize = SHELL_MAX_ARGS;
             args[j]=NULL;
-            char** targs= malloc(bufsize * sizeof(char *));
+            char** targs= malloc(bufsize * sizeof(char *)); //create temp version of args to allow use of last given args after comp handling
             int i=1;
             while(args[j+i]!=NULL)
             {
                 targs[i-1] = args[j+i];
                 i++;
             }
-            targs[i-1]=NULL;
-            if(!exec_comp(args,targs))
-                return 0;
-            args = targs;
+            targs[i-1]=NULL; //adding NULL to end of targs
+            if(!exec_comp(args,targs)) //send to composite handling
+                return 0; //if child exits, the whole thing exits
+            args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
         }
     }
@@ -146,7 +146,7 @@ int exec_comp(char **args, char **targs)
 {
     int status;
     int* fd = malloc(2*sizeof(int));
-    if(pipe(fd)==-1)
+    if(pipe(fd)==-1) //create pipe
     {
       perror("PIPE");
       exit(EXIT_FAILURE);
@@ -160,23 +160,22 @@ int exec_comp(char **args, char **targs)
             exit(EXIT_FAILURE);
         case 0:
             // Child
-            close(1);
+            close(1); //close stdout
             close(fd[0]);
-            dup(fd[1]);
+            dup(fd[1]); //dup into fdin
             close(fd[1]);
-            exec_func(args);
-            exit(EXIT_SUCCESS);
+            if(!exec_func(args))//recursive call to check args up to the pending ones
+                exit(1); //if exit, exit all
+            exit(0);
         default:
             // Parent
             wait(&status);
-            //int stin=dup(0);
-            close(0);
+            close(0); //close stdin
             close(fd[1]);
-            dup(fd[0]);
+            dup(fd[0]); //dup into fdout
             close(fd[0]);
-            //dup2(stin,0);
     }
-    return 1;
+    return (!status);
 }
 
 int exec_args(char **args) //normal execution

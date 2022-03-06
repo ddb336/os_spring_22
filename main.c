@@ -5,9 +5,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-//commands available: echo, mv, cd, ls, pwd, cat, wc, uniq, sort, rm, touch, rmdir, mkdir, exit
+// COMMANDS AVAILABLE: 
+// echo, mv, cd, ls, pwd, cat, wc, uniq, sort, rm, clear,
+// touch, rmdir, mkdir, exit, grep
 
-#define SHELL_MAX_ARGS 32
+#define SHELL_MAX_ARGS 64
 #define SHELL_TOKEN_DELIMITERS " \t\r\n\a"
 
 /* --- SHELL BUILTINS --- */
@@ -85,7 +87,10 @@ char *read_line()
 char **parse_args(char *line)
 {
     int bufsize = SHELL_MAX_ARGS, pos = 0;
-    char **tokens = malloc(bufsize * sizeof(char *)); //list of arguments to be returned
+    
+    // list of arguments to be returned
+    char **tokens = malloc(bufsize * sizeof(char *)); 
+
     char *token;
 
     if (!tokens)
@@ -94,9 +99,10 @@ char **parse_args(char *line)
         exit(EXIT_FAILURE);
     }
 
-    token = strtok(line, SHELL_TOKEN_DELIMITERS); //get the first arg
+    token = strtok(line, SHELL_TOKEN_DELIMITERS); // get the first arg
 
-    while (token != NULL) //go through the next args until you reach a NULL token
+    // Go through the next args until you reach a NULL token
+    while (token != NULL) 
     {
         tokens[pos] = token; //add the token to the array of tokens
         pos++;
@@ -104,7 +110,8 @@ char **parse_args(char *line)
         token = strtok(NULL, SHELL_TOKEN_DELIMITERS); //and fetch the next one
     }
 
-    tokens[pos] = NULL; //set the final token to NULL to allow exec to work correctly
+    //set the final token to NULL to allow exec to work correctly
+    tokens[pos] = NULL; 
     return tokens;
 }
 
@@ -118,7 +125,9 @@ int exec_func(char **args)
         {
             int bufsize = SHELL_MAX_ARGS;
             args[j]=NULL;
-            char** targs= malloc(bufsize * sizeof(char *)); //create temp version of args to allow use of last given args after comp handling
+            // create temp version of args to allow use of last 
+            // given args after comp handling
+            char** targs= malloc(bufsize * sizeof(char *)); 
             int i=1;
             while(args[j+i]!=NULL)
             {
@@ -130,6 +139,36 @@ int exec_func(char **args)
                 return 0; //if child exits, the whole thing exits
             args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
+        } 
+        // If we are doing output redirection
+        else if (strcmp(args[j], ">") == 0) { 
+            if (!args[j+1]) {
+                perror("No file given");
+                return 1;
+            } else {
+                args[j]=NULL;
+                if (!freopen(args[j+1], "a+", stdout)) {
+                    perror("File invalid");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        } 
+        // If we are doing input redirection
+        else if (strcmp(args[j], "<") == 0) {
+            // The next argument must be a file name, 
+            // there must be a next argument
+            if (!args[j+1]) {
+                perror("No file given");
+                exit(EXIT_FAILURE);
+            } else {
+                // We will only execute the preceding arguments
+                args[j]=NULL;
+                // Open the file as stdin
+                if (!freopen(args[j+1], "r", stdin)) {
+                    perror("File invalid");
+                    exit(EXIT_FAILURE);
+                }
+            }
         }
     }
     for (size_t i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
@@ -145,7 +184,7 @@ int exec_func(char **args)
 int exec_comp(char **args, char **targs)
 {
     int status;
-    int* fd = malloc(2*sizeof(int));
+    int fd[2];
     if(pipe(fd)==-1) //create pipe
     {
       perror("PIPE");

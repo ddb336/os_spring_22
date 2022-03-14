@@ -5,7 +5,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// COMMANDS AVAILABLE: 
+// COMMANDS AVAILABLE:
 // echo, mv, cd, ls, pwd, cat, wc, uniq, sort, rm, clear,
 // touch, rmdir, mkdir, exit, grep
 
@@ -15,18 +15,20 @@
 /* --- SHELL BUILTINS --- */
 
 #define NUM_SHELL_FUNCS 2
+#define NUM_REDS 3
 
 int shell_cd(char **args);
 int shell_exit(char **args);
 
 char *shell_func_names[] = {"cd", "exit"};
-
+char *red_func_names[] = {">",">>","<"};
 int (*shell_funcs[])(char **) =
 {
     &shell_cd,
     &shell_exit
 };
 
+char *red_type[] = {"w","a+","r"};
 /* ~ ~ ~ ~ ~ ~ ~ ~ ~ */
 
 /* --- FUNCTION DEFINITIONS --- */
@@ -87,9 +89,9 @@ char *read_line()
 char **parse_args(char *line)
 {
     int bufsize = SHELL_MAX_ARGS, pos = 0;
-    
+
     // list of arguments to be returned
-    char **tokens = malloc(bufsize * sizeof(char *)); 
+    char **tokens = malloc(bufsize * sizeof(char *));
 
     char *token;
 
@@ -102,7 +104,7 @@ char **parse_args(char *line)
     token = strtok(line, SHELL_TOKEN_DELIMITERS); // get the first arg
 
     // Go through the next args until you reach a NULL token
-    while (token != NULL) 
+    while (token != NULL)
     {
         tokens[pos] = token; //add the token to the array of tokens
         pos++;
@@ -111,7 +113,7 @@ char **parse_args(char *line)
     }
 
     //set the final token to NULL to allow exec to work correctly
-    tokens[pos] = NULL; 
+    tokens[pos] = NULL;
     return tokens;
 }
 
@@ -125,9 +127,9 @@ int exec_func(char **args)
         {
             int bufsize = SHELL_MAX_ARGS;
             args[j]=NULL;
-            // create temp version of args to allow use of last 
+            // create temp version of args to allow use of last
             // given args after comp handling
-            char** targs= malloc(bufsize * sizeof(char *)); 
+            char** targs= malloc(bufsize * sizeof(char *));
             int i=1;
             while(args[j+i]!=NULL)
             {
@@ -139,39 +141,43 @@ int exec_func(char **args)
                 return 0; //if child exits, the whole thing exits
             args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
-        } 
+        }
         // If we are doing output redirection
-        else if (strcmp(args[j], ">") == 0) { 
-            if (!args[j+1]) {
-                perror("No file given");
-                return 1;
-            } else {
-                args[j]=NULL;
-                if (!freopen(args[j+1], "a+", stdout)) {
-                    perror("File invalid");
-                    exit(EXIT_FAILURE);
-                }
-            }
-        } 
-        // If we are doing input redirection
-        else if (strcmp(args[j], "<") == 0) {
-            // The next argument must be a file name, 
-            // there must be a next argument
-            if (!args[j+1]) {
-                perror("No file given");
-                exit(EXIT_FAILURE);
-            } else {
-                // We will only execute the preceding arguments
-                args[j]=NULL;
-                // Open the file as stdin
-                if (!freopen(args[j+1], "r", stdin)) {
-                    perror("File invalid");
-                    exit(EXIT_FAILURE);
+        else
+        {
+            for(int i=0; i<NUM_REDS; i++)
+            {
+                if(strcmp(args[j],red_func_names[i])==0)
+                {
+                    if (!args[j+1])
+                    {
+                        fprintf(stderr, "FILE: No file given\n");
+                        return 1;
+                    }
+                    else
+                    {
+                        if(i==2)
+                        {
+                            if(access(args[j+1], F_OK))
+                            {
+                                perror("FILE");
+                                return 1;
+                            }
+                        }
+                        // Open the file as stdin/stdout
+                        printf("%s %s\n", args[j+1],red_type[i]);
+                        if (!freopen(args[j+1], red_type[i], i==2?stdin:stdout))
+                        {
+                            perror("FILE");
+                            return 1;
+                        }
+                        args[j]=NULL;
+                    }
                 }
             }
         }
     }
-    for (size_t i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
+    for (int i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
     {
         if (strcmp(args[0], shell_func_names[i]) == 0) //if it is a special case
         {

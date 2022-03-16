@@ -15,20 +15,17 @@
 /* --- SHELL BUILTINS --- */
 
 #define NUM_SHELL_FUNCS 2
-#define NUM_REDS 3
 
 int shell_cd(char **args);
 int shell_exit(char **args);
 
-char *shell_func_names[] = {"cd", "exit"};
-char *red_func_names[] = {">",">>","<"};
+const char *shell_func_names[] = {"cd", "exit"};
 int (*shell_funcs[])(char **) =
 {
     &shell_cd,
     &shell_exit
 };
 
-char *red_type[] = {"w","a+","r"};
 /* ~ ~ ~ ~ ~ ~ ~ ~ ~ */
 
 /* --- FUNCTION DEFINITIONS --- */
@@ -141,43 +138,45 @@ int exec_func(char **args)
                 return 0; //if child exits, the whole thing exits
             args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
+        } 
+        else if (strcmp(args[j], ">") == 0) { 
+            if (!args[j+1]) {
+                perror("No file given");
+                return 1;
+            } else {
+                args[j]=NULL;
+                if (!freopen(args[j+1], "w", stdout)) {
+                    perror("File invalid");
+                    exit(EXIT_FAILURE);
+                }
+            }
         }
-        // If we are doing output redirection
-        else
-        {
-            for(int i=0; i<NUM_REDS; i++)
-            {
-                if(strcmp(args[j],red_func_names[i])==0)
-                {
-                    if (!args[j+1])
-                    {
-                        fprintf(stderr, "FILE: No file given\n");
-                        return 1;
-                    }
-                    else
-                    {
-                        if(i==2)
-                        {
-                            if(access(args[j+1], F_OK))
-                            {
-                                perror("FILE");
-                                return 1;
-                            }
-                        }
-                        // Open the file as stdin/stdout
-                        printf("%s %s\n", args[j+1],red_type[i]);
-                        if (!freopen(args[j+1], red_type[i], i==2?stdin:stdout))
-                        {
-                            perror("FILE");
-                            return 1;
-                        }
-                        args[j]=NULL;
-                    }
+        else if (strcmp(args[j], "<") == 0) {
+            if (!args[j+1]) {
+                perror("No file given");
+                exit(EXIT_FAILURE);
+            } else {
+                args[j]=NULL;
+                if (!freopen(args[j+1], "r", stdin)) {
+                    perror("File invalid");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+        else if (strcmp(args[j], ">>") == 0) {
+            if (!args[j+1]) {
+                perror("No file given");
+                exit(EXIT_FAILURE);
+            } else {
+                args[j]=NULL;
+                if (!freopen(args[j+1], "a+", stdout)) {
+                    perror("File invalid");
+                    exit(EXIT_FAILURE);
                 }
             }
         }
     }
-    for (int i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
+    for (size_t i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
     {
         if (strcmp(args[0], shell_func_names[i]) == 0) //if it is a special case
         {

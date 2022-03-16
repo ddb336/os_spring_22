@@ -55,8 +55,11 @@ void shell()
     do { //shell loop
         dup2(stin,0); //reset input to stdin
         dup2(sout,1); //reset output to stdout
-        printf("[om]> ");
-        line = read_line();
+        do
+        {
+            printf("[om]> ");
+            line = read_line();
+        }while(!strcmp(line,"\n"));
         args = parse_args(line);
         status = exec_func(args);
     } while (status); //turns false with exit
@@ -75,8 +78,8 @@ char *read_line()
         }
         else
         {
-            perror("Read line error.");
-            exit(EXIT_FAILURE);
+            perror("READLINE");
+            return "";
         }
     }
 
@@ -138,17 +141,17 @@ int exec_func(char **args)
                 return 0; //if child exits, the whole thing exits
             args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
-        } 
+        }
         // Output redirection to a file
-        else if (strcmp(args[j], ">") == 0) { 
+        else if (strcmp(args[j], ">") == 0) {
             if (!args[j+1]) {
-                perror("No file name given");
+                printf("No file name given\n");
                 return 1;
             } else {
                 args[j]=NULL;
                 // Reroute stdout to the file to read from
                 if (!freopen(args[j+1], "w", stdout)) {
-                    perror("File invalid");
+                    perror("FILE");
                     exit(EXIT_FAILURE);
                 }
             }
@@ -156,13 +159,13 @@ int exec_func(char **args)
         // Input redirection from a file
         else if (strcmp(args[j], "<") == 0) {
             if (!args[j+1]) {
-                perror("No file given");
-                exit(EXIT_FAILURE);
+                printf("No file name given\n");
+                return 1;
             } else {
                 args[j]=NULL;
                 // Reroute stdin to the file to read from
                 if (!freopen(args[j+1], "r", stdin)) {
-                    perror("File invalid");
+                    perror("FILE");
                     exit(EXIT_FAILURE);
                 }
             }
@@ -170,13 +173,13 @@ int exec_func(char **args)
         // Output redirection to a file (with appending)
         else if (strcmp(args[j], ">>") == 0) {
             if (!args[j+1]) {
-                perror("No file given");
-                exit(EXIT_FAILURE);
+                printf("No file name given\n");
+                return 1;
             } else {
                 args[j]=NULL;
                 // Reroute stdout to the file to read from
                 if (!freopen(args[j+1], "a+", stdout)) {
-                    perror("File invalid");
+                    perror("FILE");
                     exit(EXIT_FAILURE);
                 }
             }

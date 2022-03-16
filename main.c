@@ -49,17 +49,15 @@ void shell()
 {
     char *line;
     char **args;
-    int status;
+    int status = 1;
     int stin = dup(0); //save stdin
     int sout = dup(1); //save stdout
     do { //shell loop
         dup2(stin,0); //reset input to stdin
         dup2(sout,1); //reset output to stdout
-        do
-        {
-            printf("[om]> ");
-            line = read_line();
-        }while(!strcmp(line,"\n"));
+        printf("[om]> ");
+        line = read_line();
+        if (!strcmp(line,"\n")) continue;
         args = parse_args(line);
         status = exec_func(args);
     } while (status); //turns false with exit
@@ -162,11 +160,17 @@ int exec_func(char **args)
                 printf("No file name given\n");
                 return 1;
             } else {
-                args[j]=NULL;
-                // Reroute stdin to the file to read from
-                if (!freopen(args[j+1], "r", stdin)) {
+                // Check that the file exists using access function
+                if (access(args[j+1], F_OK) == 0) {
+                    args[j]=NULL;
+                    // Reroute stdin to the file to read from
+                    if (!freopen(args[j+1], "r", stdin)) {
+                        perror("FILE");
+                        exit(EXIT_FAILURE);
+                    }
+                } else {
                     perror("FILE");
-                    exit(EXIT_FAILURE);
+                    return 1;
                 }
             }
         }

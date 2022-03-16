@@ -139,36 +139,42 @@ int exec_func(char **args)
             args = targs; //args to be exec'd are the args after the ones that have been executed so far
             break;
         } 
+        // Output redirection to a file
         else if (strcmp(args[j], ">") == 0) { 
             if (!args[j+1]) {
-                perror("No file given");
+                perror("No file name given");
                 return 1;
             } else {
                 args[j]=NULL;
+                // Reroute stdout to the file to read from
                 if (!freopen(args[j+1], "w", stdout)) {
                     perror("File invalid");
                     exit(EXIT_FAILURE);
                 }
             }
         }
+        // Input redirection from a file
         else if (strcmp(args[j], "<") == 0) {
             if (!args[j+1]) {
                 perror("No file given");
                 exit(EXIT_FAILURE);
             } else {
                 args[j]=NULL;
+                // Reroute stdin to the file to read from
                 if (!freopen(args[j+1], "r", stdin)) {
                     perror("File invalid");
                     exit(EXIT_FAILURE);
                 }
             }
         }
+        // Output redirection to a file (with appending)
         else if (strcmp(args[j], ">>") == 0) {
             if (!args[j+1]) {
                 perror("No file given");
                 exit(EXIT_FAILURE);
             } else {
                 args[j]=NULL;
+                // Reroute stdout to the file to read from
                 if (!freopen(args[j+1], "a+", stdout)) {
                     perror("File invalid");
                     exit(EXIT_FAILURE);

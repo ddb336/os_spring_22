@@ -4,6 +4,16 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <pthread.h>
+
+#define PORT 5100
+#define BUFF_SIZE 1024
+
+// https://stackoverflow.com/questions/955962/how-to-buffer-stdout-in-memory-and-write-it-from-a-dedicated-thread
+
+void *handleClient(void *socket);
 
 // COMMANDS AVAILABLE:
 // echo, mv, cd, ls, pwd, cat, wc, uniq, sort, rm, clear,
@@ -33,7 +43,7 @@ int (*shell_funcs[])(char **) =
 void shell();
 char *read_line();
 char **parse_args(char *line);
-int exec_func(char **args);
+int exec_func(char **args, char* buffer);
 int exec_args(char **args);
 int exec_comp(char **args, char **targs);
 
@@ -41,47 +51,74 @@ int exec_comp(char **args, char **targs);
 
 int main()
 {
-    shell();
-    return EXIT_SUCCESS;
+    // Here we create the socket
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+    {
+            perror("socket failed");
+            exit(EXIT_FAILURE);
+    }
+
+    // Here we bind to the socket
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+    {
+            perror("bind failed");
+            exit(EXIT_FAILURE);
+    }
+
+    while (1)
+    {       
+            // Listen for connections on the port
+            if (listen(server_fd, 3) < 0)
+            {
+                    perror("listen");
+                    exit(EXIT_FAILURE);
+            }
+            // Accept connections on the port
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
+                                        (socklen_t *)&addrlen)) < 0)
+            {
+                    perror("accept");
+                    exit(EXIT_FAILURE);
+            }
+            // Create a new thread and run it with the ThreadRun function
+            pthread_t th;
+            pthread_create(&th, NULL, handleClient, &new_socket);
+    }
+    close(server_fd);
+    return 0;
 }
 
-void shell()
+void *handleClient(void *socket)
 {
+    // Save the socket as an int
+    int *sock = (int *)socket;
+    int s = *sock;
     char *line;
     char **args;
     int status = 1;
-    int stin = dup(0); //save stdin
-    int sout = dup(1); //save stdout
+    
+    int stin = dup(STDIN_FILENO); //save stdin
+    int sout = dup(STDOUT_FILENO); //save stdout
     do { //shell loop
-        dup2(stin,0); //reset input to stdin
-        dup2(sout,1); //reset output to stdout
-        printf("[om]> ");
-        line = read_line();
-        if (!strcmp(line,"\n")) continue;
+        dup2(stin,STDIN_FILENO); //reset input to stdin
+        dup2(sout,STDOUT_FILENO); //reset output to stdout
+        char buffer[BUFF_SIZE+1] = {0};
+        line = get_client_line();
         args = parse_args(line);
-        status = exec_func(args);
+        status = exec_func(args, buffer);
+        buffer[0] = status+'0';
+        send(sock, buffer, strlen(buffer), 0);
     } while (status); //turns false with exit
-}
 
-char *read_line()
-{
-    char *line = NULL;
-    size_t buff_size = 0;
-
-    if (getline(&line, &buff_size, stdin) == -1) //save the line and return it
-    {
-        if (feof(stdin))
-        {
-            exit(EXIT_SUCCESS);
-        }
-        else
-        {
-            perror("READLINE");
-            return "";
-        }
-    }
-
-    return line;
+    return NULL;
 }
 
 char **parse_args(char *line)
@@ -115,7 +152,7 @@ char **parse_args(char *line)
     return tokens;
 }
 
-int exec_func(char **args)
+int exec_func(char **args, char* buffer)
 {
     int j=0;
     while(args[j]!=NULL) j++; //start from end in outermost parent
@@ -187,6 +224,19 @@ int exec_func(char **args)
                     exit(EXIT_FAILURE);
                 }
             }
+        } 
+        // Output redirection to buffer
+        else {
+            int out_pipe[2];
+
+            if(pipe(out_pipe) != 0) {  /* make a pipe */
+                perror("PIPE");
+                exit(EXIT_FAILURE);
+            }
+
+            dup2(out_pipe[1], STDOUT_FILENO);   /* redirect stdout to the pipe */
+            close(out_pipe[1]);
+            fflush(stdout);
         }
     }
     for (size_t i = 0; i < NUM_SHELL_FUNCS; i++) //look through the given special cases
@@ -197,8 +247,14 @@ int exec_func(char **args)
         }
     }
 
-    return exec_args(args); //else execute it normally
+    //else execute it normally
+    int return_val = exec_args(args);
+
+    read(out_pipe[0], buffer+1, BUFF_SIZE);
+    
+    return return_val;
 }
+
 int exec_comp(char **args, char **targs)
 {
     int status;

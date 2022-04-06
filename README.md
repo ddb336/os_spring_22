@@ -1,4 +1,4 @@
-# os_spring_22
+# OS Project - Spring 2022
 
 ### Background
 
@@ -8,7 +8,7 @@ This program is used as a remote server shell, with a client-server architecture
 
 To use this project, you need to compile the server and client. To do this, cd into the project file, type “make,” and hit enter. 
 
-After this, you can first run the server by typing in “./server” and then run the client in a separate terminal using “./client”. The shell will open, and a prompt will show: <code>[om]><code>.  You can now type in commands into the client shell, and they will be sent to the server to be executed. The response will be sent back and printed on the client screen.
+After this, you can first run the server by typing in “./server” and then run the client in a separate terminal using “./client”. The shell will open, and a prompt will show: <code> [om]\> <code>.  You can now type in commands into the client shell, and they will be sent to the server to be executed. The response will be sent back and printed on the client screen.
 
 The full list of commands is: 
 •	clear

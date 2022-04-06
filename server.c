@@ -6,15 +6,15 @@
 #include <string.h>
 #include <pthread.h>
 
+// The port and buffer size defined
 #define PORT 5100
 #define BUFF_SIZE 1024
 
+// Maximum number of args in the shell, and command delimiters
 #define SHELL_MAX_ARGS 64
 #define SHELL_TOKEN_DELIMITERS " \t\r\n\a"
 
-void *shell(void *);
-
-char **parse_args(char *line, char** args);
+/* --- BUILTIN FUNCTIONS --- */
 
 #define NUM_SHELL_FUNCS 2
 
@@ -32,10 +32,14 @@ int (*shell_funcs[])(char **) =
 
 /* --- FUNCTION DEFINITIONS --- */
 
+void *shell(void *);
+char **parse_args(char *line, char** args);
 char *read_line();
 int exec_func(char **args);
 int exec_args(char **args);
 int exec_comp(char **args, char **targs);
+
+/* ~ ~ ~ ~ ~ ~ ~ ~ ~ */
 
 int main()
 {
@@ -76,7 +80,7 @@ int main()
                         perror("accept");
                         exit(EXIT_FAILURE);
                 }
-                // Create a new thread and run it with the ThreadRun function
+                // Create a new thread and run it with the shell function
                 pthread_t th;
                 pthread_create(&th, NULL, shell, &new_socket);
         }
@@ -84,7 +88,7 @@ int main()
         return 0;
 }
 
-// Threadrun function
+// Shell function
 void *shell(void *socket)
 {
         // Save the socket as an int
@@ -93,12 +97,11 @@ void *shell(void *socket)
 
         int status = 1;
 
+        // Create the args
         char** args = malloc(SHELL_MAX_ARGS * sizeof(char *));;
         char recv_buffer[BUFF_SIZE];
 
-        int stin = dup(STDIN_FILENO); //save stdin
-        int sout = dup(STDOUT_FILENO); //save stdout   
-
+        // Here we create a pipe to save the stderr and stdout
         int send_pipe[2];
         if(pipe(send_pipe) != 0 ) {
             fprintf(stderr, "Out pipe error\n");
@@ -109,33 +112,36 @@ void *shell(void *socket)
 
         do
         {
-            // pid_t pid = fork();
-            // if(pid>0)
-
-            dup2(send_pipe[1], STDOUT_FILENO); /* redirect stdout to the pipe */
+            // Here we sup the stdout and stderr into the send pipe
+            dup2(send_pipe[1], STDOUT_FILENO); 
             dup2(send_pipe[1], STDERR_FILENO);
 
             // Receive message from child
             memset(recv_buffer,0,strlen(recv_buffer));
-
             recv(s, recv_buffer, sizeof(recv_buffer), 0);
 
+            // If empty message, continue
             if (strlen(recv_buffer) == 0) {
                 status = 0;
                 continue;
             }
 
+            // Parse the arguments and execute them
             parse_args(recv_buffer, args);
-
             status = exec_func(args);
 
+            // Empty the buffer and write something into pipe (so that client 
+            // doesnt end up waiting if nothing is sent to the client)
             memset(send_buffer,0,BUFF_SIZE);
-            write(send_pipe[1], "\n", sizeof(char)*2);
+            write(send_pipe[1], " ", sizeof(char)*2);
 
+            // Read from pipe to buffer 
             read(send_pipe[0], send_buffer, BUFF_SIZE);
-
+            
+            // Send the buffer
             send(s, send_buffer, strlen(send_buffer), 0);
 
+            // Empty the args
             for (size_t i = 0; i < SHELL_MAX_ARGS; i++)
             {
                 if (args[i]) {

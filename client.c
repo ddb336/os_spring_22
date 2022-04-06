@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define PORT 5100
+#define PORT 5101
 #define BUFF_SIZE 1024
 
 void shell(int sock);
@@ -55,13 +55,12 @@ void shell(int sock)
         send(sock, line, strlen(line), 0);
 
         if (!strcmp(line,"exit\n")) break;
-        if (!strncmp(line,"cd",2)) continue;
         
         recv(sock, recv_buffer, BUFF_SIZE, 0);
 
-        printf("%s\n", recv_buffer + 1);
+        recv_buffer[strlen(recv_buffer)-1] = '\0';
 
-        status = atoi(&recv_buffer[0]);
+        printf("%s", recv_buffer);
         
     } while (status); //turns false with exit
 }

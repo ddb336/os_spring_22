@@ -6,7 +6,7 @@
 #include <string.h>
 #include <pthread.h>
 
-#define PORT 5100
+#define PORT 5101
 #define BUFF_SIZE 1024
 
 #define SHELL_MAX_ARGS 64
@@ -100,37 +100,41 @@ void *shell(void *socket)
         int sout = dup(STDOUT_FILENO); //save stdout   
 
         int send_pipe[2];
-        if( pipe(send_pipe) != 0 ) {
+        if(pipe(send_pipe) != 0 ) {
             fprintf(stderr, "Out pipe error\n");
             exit(EXIT_FAILURE);
         }
 
         char send_buffer[BUFF_SIZE] = {0};
-        char send_buffer2[BUFF_SIZE] = {0};
 
         do
         {
+            // pid_t pid = fork();
+            // if(pid>0)
+
             dup2(send_pipe[1], STDOUT_FILENO); /* redirect stdout to the pipe */
+            dup2(send_pipe[1], STDERR_FILENO);
 
             // Receive message from child
             memset(recv_buffer,0,strlen(recv_buffer));
 
             recv(s, recv_buffer, sizeof(recv_buffer), 0);
 
+            if (strlen(recv_buffer) == 0) {
+                status = 0;
+                continue;
+            }
+
             parse_args(recv_buffer, args);
 
-            status = exec_func(args);  
-
-            if (!strcmp(args[0],"cd")) continue;
+            status = exec_func(args);
 
             memset(send_buffer,0,BUFF_SIZE);
-            memset(send_buffer2,0,BUFF_SIZE);
+            write(send_pipe[1], "\n", sizeof(char)*2);
 
             read(send_pipe[0], send_buffer, BUFF_SIZE);
 
-            snprintf(send_buffer2, strlen(send_buffer)+1, "%d%s", status, send_buffer);
-
-            send(s, send_buffer2, strlen(send_buffer2), 0);
+            send(s, send_buffer, strlen(send_buffer), 0);
 
             for (size_t i = 0; i < SHELL_MAX_ARGS; i++)
             {

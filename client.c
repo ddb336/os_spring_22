@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define PORT 5101
+#define PORT 5100
 #define BUFF_SIZE 1024
 
 void shell(int sock);
@@ -54,7 +54,7 @@ void shell(int sock)
 
         send(sock, line, strlen(line), 0);
 
-        if (!strcmp(line,"exit\n")) break;
+        if (!strncmp(line,"exit",sizeof(char)*4)) break;
         
         recv(sock, recv_buffer, BUFF_SIZE, 0);
 

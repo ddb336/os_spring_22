@@ -6,7 +6,7 @@
 #include <string.h>
 #include <pthread.h>
 
-#define PORT 5101
+#define PORT 5100
 #define BUFF_SIZE 1024
 
 #define SHELL_MAX_ARGS 64

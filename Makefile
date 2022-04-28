@@ -1,5 +1,5 @@
 all: server.c client.c
-	gcc -lpthread -o server server.c
+	gcc -pthread -o server server.c
 	gcc -o client client.c
 
 server: server.c

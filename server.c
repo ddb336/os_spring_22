@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/wait.h>
 
 // The port and buffer size defined
 #define PORT 5100

@@ -38,7 +38,7 @@ int get_socket()
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         printf("\nSocket creation error \n");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     // Here we try to connect to the socket on a specific port
@@ -47,7 +47,7 @@ int get_socket()
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         printf("\nConnection Failed \n");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     return sock;

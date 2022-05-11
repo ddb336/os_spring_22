@@ -59,7 +59,8 @@ int main()
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = INADDR_ANY;
         address.sin_port = htons(PORT);
-
+        int optval = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval , sizeof(int));
         if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
         {
                 perror("bind failed");
@@ -67,7 +68,7 @@ int main()
         }
 
         while (1)
-        {       
+        {
                 // Listen for connections on the port
                 if (listen(server_fd, 3) < 0)
                 {
@@ -114,7 +115,7 @@ void *shell(void *socket)
         do
         {
             // Here we sup the stdout and stderr into the send pipe
-            dup2(send_pipe[1], STDOUT_FILENO); 
+            dup2(send_pipe[1], STDOUT_FILENO);
             dup2(send_pipe[1], STDERR_FILENO);
 
             // Receive message from child
@@ -131,14 +132,14 @@ void *shell(void *socket)
             parse_args(recv_buffer, args);
             status = exec_func(args);
 
-            // Empty the buffer and write something into pipe (so that client 
+            // Empty the buffer and write something into pipe (so that client
             // doesnt end up waiting if nothing is sent to the client)
             memset(send_buffer,0,BUFF_SIZE);
             write(send_pipe[1], " ", sizeof(char)*2);
 
-            // Read from pipe to buffer 
+            // Read from pipe to buffer
             read(send_pipe[0], send_buffer, BUFF_SIZE);
-            
+
             // Send the buffer
             send(s, send_buffer, strlen(send_buffer), 0);
 
@@ -192,6 +193,11 @@ int exec_func(char **args)
     {
         if (strcmp(args[j], "|") == 0) //if it is a composite pipe
         {
+            if(args[j+1]==NULL) //if it is a bad request for piping, ignore
+            {
+                fprintf(stderr,"PIPE: no arguments after pipe\n");
+                return 1;
+            }
             int bufsize = SHELL_MAX_ARGS;
             memset(args[j],0,strlen(args[j]));
             args[j]=NULL;
@@ -213,7 +219,7 @@ int exec_func(char **args)
         // Output redirection to a file
         else if (strcmp(args[j], ">") == 0) {
             if (!args[j+1]) {
-                printf("No file name given\n");
+                fprintf(stderr,"FILE: No file name given\n");
                 return 1;
             } else {
                 memset(args[j],0,strlen(args[j]));
@@ -228,7 +234,7 @@ int exec_func(char **args)
         // Input redirection from a file
         else if (strcmp(args[j], "<") == 0) {
             if (!args[j+1]) {
-                printf("No file name given\n");
+                fprintf(stderr,"FILE: No file name given\n");
                 return 1;
             } else {
                 // Check that the file exists using access function
@@ -249,7 +255,7 @@ int exec_func(char **args)
         // Output redirection to a file (with appending)
         else if (strcmp(args[j], ">>") == 0) {
             if (!args[j+1]) {
-                printf("No file name given\n");
+                fprintf(stderr,"FILE: No file name given\n");
                 return 1;
             } else {
                 memset(args[j],0,strlen(args[j]));

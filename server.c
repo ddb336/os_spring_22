@@ -6,10 +6,16 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <semaphore.h>
+#include <sys/time.h>
+#include <fcntl.h>
+#include <stdbool.h>
+
 
 // The port and buffer size defined
 #define PORT 5100
-#define BUFF_SIZE 1024
+#define BUFF_SIZE 4096
 
 // Maximum number of args in the shell, and command delimiters
 #define SHELL_MAX_ARGS 64
@@ -30,6 +36,38 @@ int (*shell_funcs[])(char **) =
 };
 
 /* ~ ~ ~ ~ ~ ~ ~ ~ ~ */
+
+void* schedule(void* saved_std);
+
+/* --- JOB STRUCT --- */
+
+int QUANTUM = 700;
+
+void* quantum_wait(void * job_to_do);
+
+sem_t job_semaphore;    
+sem_t quantum_sem;
+
+struct Job {
+    char **args;
+    int n;
+    sem_t finished;
+    sem_t *linked;
+    struct Job* next;
+    pid_t pid;
+};
+
+struct Queue {
+    struct Job* head;
+    struct Job* min;
+} job_queue;
+
+struct saved_std {
+    int saved_stdout;
+    int saved_stderr;
+};
+
+void exec_job(struct Job* job_to_do, char* sem_name);
 
 /* --- FUNCTION DEFINITIONS --- */
 
@@ -66,6 +104,15 @@ int main()
                 perror("bind failed");
                 exit(EXIT_FAILURE);
         }
+
+        sem_init(&job_semaphore, 0, 0);
+
+        struct saved_std schedule_std;
+        schedule_std.saved_stderr = dup(STDOUT_FILENO);
+        schedule_std.saved_stderr = dup(STDERR_FILENO);
+        
+        pthread_t scheduler;
+        pthread_create(&scheduler, NULL, schedule, &schedule_std);
 
         while (1)
         {
@@ -116,7 +163,7 @@ void *shell(void *socket)
         {
             // Here we sup the stdout and stderr into the send pipe
             dup2(send_pipe[1], STDOUT_FILENO);
-            dup2(send_pipe[1], STDERR_FILENO);
+            // dup2(send_pipe[1], STDERR_FILENO);
 
             // Receive message from child
             memset(recv_buffer,0,strlen(recv_buffer));
@@ -317,6 +364,21 @@ int exec_comp(char **args, char **targs)
 
 int exec_args(char **args) //normal execution
 {
+    if (!strcmp(args[0], "./test_prog")) {
+        struct Job new_job;
+        new_job.args = args;
+        new_job.next = job_queue.head;
+        job_queue.head = &new_job;
+        new_job.pid = 0;
+        new_job.n = atoi(args[1]);
+
+        sem_init(&new_job.finished, 0, 0);
+
+        sem_post(&job_semaphore);
+        sem_wait(&new_job.finished);
+        return 1;
+    }
+
     int status;
     pid_t pid = fork();
 
@@ -357,4 +419,123 @@ int shell_cd(char **args) //special case: cd
 int shell_exit(char **args) //special case: exit
 {
     return 0; //return 0 as status
+}
+
+void *schedule(void* saved_std)
+{
+    sem_init(&quantum_sem, 0, 1);
+
+    struct saved_std *my_std = (struct saved_std*)saved_std;
+
+    int ctr = 0;
+    while (1) {
+        //fprintf(stderr, "test3\n");
+
+        sem_wait(&quantum_sem);
+        sem_wait(&job_semaphore);
+        
+        dup2(my_std->saved_stderr, STDERR_FILENO);
+        dup2(my_std->saved_stdout, STDOUT_FILENO);
+
+        struct Job *current = job_queue.head;
+        struct Job *job_to_do = job_queue.head;
+
+        while (current != NULL) {
+            if (current->n < job_to_do->n) {
+                job_to_do = current;
+            }
+            current=current->next;
+        }
+
+        fprintf(stderr, "Starting Job %d\n", ctr);
+
+        char sem_name[64];
+        sprintf(sem_name, "%d", ctr);
+
+        if (job_to_do->pid == 0) {
+            exec_job(job_to_do, sem_name);
+        } else {
+            //sem_post(job_to_do->linked);
+        }
+
+        // fprintf(stderr, "job pid=%u\n", job_to_do->pid);
+        pthread_t wait_thread;
+        pthread_create(&wait_thread, NULL, quantum_wait, (void*)job_to_do);
+
+        ctr++;
+    }
+    return NULL;
+}
+
+void exec_job(struct Job* job_to_do, char *sem_name)
+{
+    int status;
+    pid_t pid = fork();
+
+    char **args = job_to_do->args;
+    
+    switch (pid)
+    {
+        case -1:
+            // On error fork() returns -1.
+            perror("FORK");
+            exit(EXIT_FAILURE);
+        case 0:
+            // Child
+            if (execlp(args[0], args[0], args[1], sem_name, (char *)NULL) == -1)
+            {
+                perror("COMMAND ERROR");
+            }
+            exit(EXIT_FAILURE);
+        default:
+            // Parent
+            job_to_do->pid = pid;
+            job_to_do->linked = sem_open(sem_name, O_CREAT, 0666, 1);
+    }
+}
+
+void* quantum_wait(void *job_to_do)
+{
+    struct Job* job = (struct Job*)job_to_do;
+
+    int st = -1;
+    int *status;
+    status = &st;
+
+    struct timeval t0;
+    struct timeval t1;
+    gettimeofday(&t0, 0);
+
+    waitpid(job->pid, status, WNOHANG);
+
+    do {
+        gettimeofday(&t1, 0);
+        long int t = (t1.tv_sec-t0.tv_sec)*1000000 + t1.tv_usec-t0.tv_usec;
+        t = t/1000;
+        if(t>QUANTUM)// if time > quantum sem_wait(sema);
+        {
+            fprintf(stderr,"reached timeout!");
+            job->n -= QUANTUM;
+            sem_wait(job->linked);
+            sem_post(&quantum_sem);
+            return NULL;
+        }
+    } while (1);
+
+    sem_post(&job->finished);
+
+    struct Job *current;
+
+    if (job_queue.head == job) {
+        job_queue.head = job_queue.head->next;
+    } else {
+        current = job_queue.head;
+        while (current->next != job) {
+            current = current->next;
+        }
+        current->next = job->next;
+    }
+    sem_post(&quantum_sem);
+
+    return NULL;
 }

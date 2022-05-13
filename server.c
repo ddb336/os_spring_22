@@ -383,7 +383,7 @@ int exec_args(char **args) //normal execution
 
         sem_init(&new_job.finished, 0, 0);
 
-        sem_post(&job_semaphore);
+        sem_post(&job_semaphore); 
         sem_wait(&new_job.finished);
         return 1;
     }
@@ -438,7 +438,7 @@ void *schedule(void* saved_std)
     int ctr = 0;
     while (1) {
         ctr++;
-        sem_wait(&job_semaphore);
+        sem_wait(&job_semaphore); 
         
         dup2(my_std->saved_stderr, STDERR_FILENO);
         dup2(my_std->saved_stdout, STDOUT_FILENO);
@@ -488,7 +488,7 @@ void quantum_wait(struct Job* job)
     struct timeval t1;
     gettimeofday(&t0, 0);
 
-    do {
+    while (!job->is_done) {
         gettimeofday(&t1, 0);
         long int t = (t1.tv_sec-t0.tv_sec)*1000000 + t1.tv_usec-t0.tv_usec;
         t = t/1000;
@@ -500,7 +500,7 @@ void quantum_wait(struct Job* job)
             fprintf(stderr,"reached timeout!\n");
             return;
         }
-    } while (!job->is_done);
+    }
 
     sem_post(&job->finished);
 

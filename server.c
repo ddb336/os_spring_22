@@ -12,7 +12,7 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <sys/stat.h>
-#include <errno.h>    
+#include <errno.h>
 
 // The port and buffer size defined
 #define PORT 5100
@@ -42,9 +42,9 @@ void* schedule(void* saved_std);
 
 /* --- JOB STRUCT --- */
 
-int QUANTUM = 100;
+int QUANTUM = 100; //initial quantum
 
-sem_t job_semaphore;    
+sem_t job_semaphore;
 
 struct Job {
     char **args;
@@ -114,7 +114,7 @@ int main()
         struct saved_std schedule_std;
         schedule_std.saved_stderr = dup(STDOUT_FILENO);
         schedule_std.saved_stderr = dup(STDERR_FILENO);
-        
+
         pthread_t scheduler;
         pthread_create(&scheduler, NULL, schedule, &schedule_std);
 
@@ -383,7 +383,7 @@ int exec_args(char **args) //normal execution
 
         sem_init(&new_job.finished, 0, 0);
 
-        sem_post(&job_semaphore); 
+        sem_post(&job_semaphore);
         sem_wait(&new_job.finished);
         return 1;
     }
@@ -430,24 +430,25 @@ int shell_exit(char **args) //special case: exit
     return 0; //return 0 as status
 }
 
+// handles "programs" and schedules their execution
 void *schedule(void* saved_std)
 {
-
-    struct saved_std *my_std = (struct saved_std*)saved_std;
-
+    struct saved_std *my_std = (struct saved_std*)saved_std; //saves the  stdout and stderr
     int ctr = 0;
-    while (1) {
+
+    while (1) { //main loop
         ctr++;
-        sem_wait(&job_semaphore); 
-        
+        sem_wait(&job_semaphore); //wait for a job to enter queue
+
+        //dup the outputs
         dup2(my_std->saved_stderr, STDERR_FILENO);
         dup2(my_std->saved_stdout, STDOUT_FILENO);
 
         fprintf(stderr, "Back here %d\n", ctr);
         struct Job *current = job_queue.head;
-        struct Job *job_to_do = job_queue.head;
+        struct Job *job_to_do = job_queue.head; //shortest job
 
-        while (current != NULL) {
+        while (current != NULL) { //iterate the queue for min job
             if (current->n < job_to_do->n) {
                 job_to_do = current;
             }
@@ -464,16 +465,17 @@ void *schedule(void* saved_std)
             exec_job(job_to_do, sem_name);
         } else {
             fprintf(stderr,"job executing...\n");
-            sem_post(&job_to_do->linked);
+            sem_post(&job_to_do->linked); //if job already exists, post it to start
             job_to_do->executing++;
         }
-        quantum_wait(job_to_do);
+        quantum_wait(job_to_do); //count quantum either way
     }
     return NULL;
 }
 
+// starts a program if it is not started
 void exec_job(struct Job* job_to_do, char *sem_name)
-{   
+{
     sem_init(&job_to_do->linked, 0, 1);
 
     pthread_t prog_thread;
@@ -482,41 +484,45 @@ void exec_job(struct Job* job_to_do, char *sem_name)
     job_to_do->executing = true;
 }
 
+// adds the Round Robin with variable QUANTUM to the scheduling
 void quantum_wait(struct Job* job)
 {
     struct timeval t0;
     struct timeval t1;
-    gettimeofday(&t0, 0);
+    gettimeofday(&t0, 0); //get start time
 
     while (!job->is_done) {
-        gettimeofday(&t1, 0);
+        gettimeofday(&t1, 0); //get end time
         long int t = (t1.tv_sec-t0.tv_sec)*1000000 + t1.tv_usec-t0.tv_usec;
-        t = t/1000;
+        t = t/1000; //save time in ms to compare
         if(t>QUANTUM*job->executing)
         {
-            sem_wait(&job->linked);
-            job->n -= QUANTUM*job->executing;
-            sem_post(&job_semaphore);
+            fprintf(stderr,"timed out!\n");
+            sem_wait(&job->linked); //BUG: pausing the quantum wait (does not resolve till the program is done)
+            job->n -= QUANTUM*job->executing; //decrements the expected time left for the job by the time given
+            sem_post(&job_semaphore); //return the program to the queue
             fprintf(stderr,"reached timeout!\n");
             return;
         }
     }
-
-    sem_post(&job->finished);
+    //if job finishes
 
     struct Job *current;
 
-    if (job_queue.head == job) {
+    if (job_queue.head == job) { //if the job is the head, make the next job the head
         job_queue.head = job_queue.head->next;
-    } else {
+    } else { //otherwise, make the predecessor's next the job's next (remove the job from the queue)
         current = job_queue.head;
         while (current->next != job) {
             current = current->next;
         }
         current->next = job->next;
     }
+    sem_post(&job->finished); //release client
+    //do not post job_semaphore since the job is removed from the queue
 }
 
+// program to be run by the scheduler
 void * program(void * job_to_do)
 {
     struct Job* job = (struct Job*)job_to_do;
@@ -525,8 +531,8 @@ void * program(void * job_to_do)
     {
         sem_wait(&job->linked);
         printf("%d\n", (int) i);
-        msleep(100); // 100 milliseconds
         sem_post(&job->linked);
+        msleep(100); // 100 milliseconds
     }
     fprintf(stderr,"a\n");
     job->is_done = true;

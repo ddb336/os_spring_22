@@ -454,7 +454,7 @@ void *schedule(void* saved_std)
             if (current->n < job_to_do->n) {
                 job_to_do = current;
             }
-            printf("Search: current job len: %d\n", current->n);
+            printf("Search: Job [%d] len: %d\n", job_to_do->job_num, current->n);
             current=current->next;
         }
         
@@ -540,7 +540,7 @@ void * program(void * job_to_do)
         sem_post(&job->linked);
         msleep(100); // 100 milliseconds
     }
-    fprintf(stderr,"a\n");
+    fprintf(stderr,"Finished job %d\n", job->job_num);
     job->is_done = true;
     return NULL;
 }

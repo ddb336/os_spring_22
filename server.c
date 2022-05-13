@@ -54,6 +54,7 @@ struct Job {
     struct Job* next;
     int executing;
     bool is_done;
+    int job_num;
 };
 
 struct Queue {
@@ -380,6 +381,7 @@ int exec_args(char **args) //normal execution
         }
         new_job.is_done = false;
         new_job.executing = false;
+        new_job.job_num = -1;
 
         sem_init(&new_job.finished, 0, 0);
 
@@ -444,7 +446,7 @@ void *schedule(void* saved_std)
         dup2(my_std->saved_stderr, STDERR_FILENO);
         dup2(my_std->saved_stdout, STDOUT_FILENO);
 
-        fprintf(stderr, "Back here %d\n", ctr);
+        fprintf(stderr, "Back here\n");
         struct Job *current = job_queue.head;
         struct Job *job_to_do = job_queue.head; //shortest job
 
@@ -452,16 +454,20 @@ void *schedule(void* saved_std)
             if (current->n < job_to_do->n) {
                 job_to_do = current;
             }
+            printf("Search: current job len: %d\n", current->n);
             current=current->next;
         }
-
-        fprintf(stderr, "Starting Job %d\n", ctr);
-
+        
         char sem_name[64];
         sprintf(sem_name, "%d", ctr);
 
+        if (job_to_do->job_num != -1) {
+            fprintf(stderr, "Starting Job %d\n", job_to_do->job_num);
+        }
+
         if (!job_to_do->executing) {
-            fprintf(stderr,"new job...\n");
+            fprintf(stderr,"New job, name: %d\n",ctr);
+            job_to_do->job_num = ctr;
             exec_job(job_to_do, sem_name);
         } else {
             fprintf(stderr,"job executing...\n");
@@ -499,7 +505,7 @@ void quantum_wait(struct Job* job)
         {
             fprintf(stderr,"timed out!\n");
             sem_wait(&job->linked); //BUG: pausing the quantum wait (does not resolve till the program is done)
-            job->n -= QUANTUM*job->executing; //decrements the expected time left for the job by the time given
+            job->n -= (QUANTUM*job->executing/100); //decrements the expected time left for the job by the time given
             sem_post(&job_semaphore); //return the program to the queue
             fprintf(stderr,"reached timeout!\n");
             return;

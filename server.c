@@ -11,7 +11,8 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <stdbool.h>
-
+#include <sys/stat.h>
+#include <errno.h>    
 
 // The port and buffer size defined
 #define PORT 5100
@@ -41,20 +42,18 @@ void* schedule(void* saved_std);
 
 /* --- JOB STRUCT --- */
 
-int QUANTUM = 700;
-
-void* quantum_wait(void * job_to_do);
+int QUANTUM = 100;
 
 sem_t job_semaphore;    
-sem_t quantum_sem;
 
 struct Job {
     char **args;
     int n;
     sem_t finished;
-    sem_t *linked;
+    sem_t linked;
     struct Job* next;
-    pid_t pid;
+    int executing;
+    bool is_done;
 };
 
 struct Queue {
@@ -67,7 +66,12 @@ struct saved_std {
     int saved_stderr;
 };
 
+void quantum_wait(struct Job * job_to_do);
+
 void exec_job(struct Job* job_to_do, char* sem_name);
+
+int msleep(long msec);
+void * program(void * job_to_do);
 
 /* --- FUNCTION DEFINITIONS --- */
 
@@ -369,8 +373,13 @@ int exec_args(char **args) //normal execution
         new_job.args = args;
         new_job.next = job_queue.head;
         job_queue.head = &new_job;
-        new_job.pid = 0;
-        new_job.n = atoi(args[1]);
+        if (args[1] == NULL) {
+            new_job.n = 1;
+        } else {
+            new_job.n = atoi(args[1]);
+        }
+        new_job.is_done = false;
+        new_job.executing = false;
 
         sem_init(&new_job.finished, 0, 0);
 
@@ -423,20 +432,18 @@ int shell_exit(char **args) //special case: exit
 
 void *schedule(void* saved_std)
 {
-    sem_init(&quantum_sem, 0, 1);
 
     struct saved_std *my_std = (struct saved_std*)saved_std;
 
     int ctr = 0;
     while (1) {
-        //fprintf(stderr, "test3\n");
-
-        sem_wait(&quantum_sem);
+        ctr++;
         sem_wait(&job_semaphore);
         
         dup2(my_std->saved_stderr, STDERR_FILENO);
         dup2(my_std->saved_stdout, STDOUT_FILENO);
 
+        fprintf(stderr, "Back here %d\n", ctr);
         struct Job *current = job_queue.head;
         struct Job *job_to_do = job_queue.head;
 
@@ -452,75 +459,48 @@ void *schedule(void* saved_std)
         char sem_name[64];
         sprintf(sem_name, "%d", ctr);
 
-        if (job_to_do->pid == 0) {
+        if (!job_to_do->executing) {
+            fprintf(stderr,"new job...\n");
             exec_job(job_to_do, sem_name);
         } else {
-            //sem_post(job_to_do->linked);
+            fprintf(stderr,"job executing...\n");
+            sem_post(&job_to_do->linked);
+            job_to_do->executing++;
         }
-
-        // fprintf(stderr, "job pid=%u\n", job_to_do->pid);
-        pthread_t wait_thread;
-        pthread_create(&wait_thread, NULL, quantum_wait, (void*)job_to_do);
-
-        ctr++;
+        quantum_wait(job_to_do);
     }
     return NULL;
 }
 
 void exec_job(struct Job* job_to_do, char *sem_name)
-{
-    int status;
-    pid_t pid = fork();
+{   
+    sem_init(&job_to_do->linked, 0, 1);
 
-    char **args = job_to_do->args;
-    
-    switch (pid)
-    {
-        case -1:
-            // On error fork() returns -1.
-            perror("FORK");
-            exit(EXIT_FAILURE);
-        case 0:
-            // Child
-            if (execlp(args[0], args[0], args[1], sem_name, (char *)NULL) == -1)
-            {
-                perror("COMMAND ERROR");
-            }
-            exit(EXIT_FAILURE);
-        default:
-            // Parent
-            job_to_do->pid = pid;
-            job_to_do->linked = sem_open(sem_name, O_CREAT, 0666, 1);
-    }
+    pthread_t prog_thread;
+    pthread_create(&prog_thread, NULL, program, (void*)job_to_do);
+
+    job_to_do->executing = true;
 }
 
-void* quantum_wait(void *job_to_do)
+void quantum_wait(struct Job* job)
 {
-    struct Job* job = (struct Job*)job_to_do;
-
-    int st = -1;
-    int *status;
-    status = &st;
-
     struct timeval t0;
     struct timeval t1;
     gettimeofday(&t0, 0);
-
-    waitpid(job->pid, status, WNOHANG);
 
     do {
         gettimeofday(&t1, 0);
         long int t = (t1.tv_sec-t0.tv_sec)*1000000 + t1.tv_usec-t0.tv_usec;
         t = t/1000;
-        if(t>QUANTUM)// if time > quantum sem_wait(sema);
+        if(t>QUANTUM*job->executing)
         {
-            fprintf(stderr,"reached timeout!");
-            job->n -= QUANTUM;
-            sem_wait(job->linked);
-            sem_post(&quantum_sem);
-            return NULL;
+            sem_wait(&job->linked);
+            job->n -= QUANTUM*job->executing;
+            sem_post(&job_semaphore);
+            fprintf(stderr,"reached timeout!\n");
+            return;
         }
-    } while (1);
+    } while (!job->is_done);
 
     sem_post(&job->finished);
 
@@ -535,7 +515,42 @@ void* quantum_wait(void *job_to_do)
         }
         current->next = job->next;
     }
-    sem_post(&quantum_sem);
+}
 
+void * program(void * job_to_do)
+{
+    struct Job* job = (struct Job*)job_to_do;
+    int n = job->n;
+    for (size_t i = 0; i < n; i++)
+    {
+        sem_wait(&job->linked);
+        printf("%d\n", (int) i);
+        msleep(100); // 100 milliseconds
+        sem_post(&job->linked);
+    }
+    fprintf(stderr,"a\n");
+    job->is_done = true;
     return NULL;
+}
+
+/* msleep(): Sleep for the requested number of milliseconds. */
+int msleep(long msec)
+{
+    struct timespec ts;
+    int res;
+
+    if (msec < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    ts.tv_sec = msec / 1000;
+    ts.tv_nsec = (msec % 1000) * 1000000;
+
+    do {
+        res = nanosleep(&ts, &ts);
+    } while (res && errno == EINTR);
+
+    return res;
 }
